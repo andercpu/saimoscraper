@@ -1,0 +1,8 @@
+saimo.db
+saimo.db-journal
+saimo.db-wal
+saimo.db-shm
+saimo.m3u
+downloads/
+*.part
+__pycache__/

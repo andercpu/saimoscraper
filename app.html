@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saimo Scraper</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{background:#0b0b0e;color:#eee;font-family:system-ui;margin:0}
+header{position:sticky;top:0;background:#111118;border-bottom:1px solid #222;padding:10px 16px;z-index:5}
+header h1{font-size:18px;margin:0 0 8px}
+nav{display:flex;gap:6px;flex-wrap:wrap}
+nav button{background:#1d1d26;color:#eee;border:1px solid #333;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:15px}
+nav button.on{background:#e50914;border-color:#e50914}
+#busca{width:100%;margin-top:8px;padding:10px;font-size:16px;border-radius:8px;border:1px solid #333;background:#1a1a22;color:#eee}
+#player{position:sticky;top:0;background:#000;display:none}
+#player video{width:100%;max-height:52vh;background:#000}
+#info{background:#14141b;padding:8px 16px;font-size:14px;display:none;border-bottom:1px solid #222}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;padding:16px}
+.card{background:#17171f;border-radius:10px;overflow:hidden;cursor:pointer;border:1px solid #26262f}
+.card img{width:100%;aspect-ratio:2/3;object-fit:cover;background:#222;display:block}
+.card.r img{aspect-ratio:1/1}
+.card div{padding:8px;font-size:13px;min-height:3.2em}
+.card small{color:#999}
+#mais{display:block;margin:0 auto 24px;padding:10px 30px;font-size:16px;background:#1d1d26;color:#eee;border:1px solid #333;border-radius:8px;cursor:pointer}
+#det{position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;overflow:auto}
+#detBox{background:#14141b;max-width:640px;margin:5vh auto;padding:20px;border-radius:12px;border:1px solid #333}
+#detBox img{max-width:120px;float:left;margin-right:12px;border-radius:8px}
+.fonte{display:block;width:100%;text-align:left;margin:6px 0;padding:10px;background:#1d1d26;color:#eee;border:1px solid #333;border-radius:8px;cursor:pointer;font-size:14px}
+.fonte:hover{border-color:#e50914}
+select,input[type=text]{background:#1a1a22;color:#eee;border:1px solid #333;border-radius:8px;padding:8px;font-size:15px}
+#stats{padding:16px;color:#888;font-size:13px}
+</style>
+</head>
+<body>
+<header>
+<h1>▶ Saimo Scraper</h1>
+<nav>
+<button data-aba="canais" class="on">TV ao vivo</button>
+<button data-aba="filmes">Filmes</button>
+<button data-aba="series">Séries</button>
+<button data-aba="radios">Rádios</button>
+</nav>
+<input id="busca" placeholder="Buscar… (Enter)">
+</header>
+<div id="player"><video id="v" controls playsinline></video></div>
+<div id="info"></div>
+<div id="grid"></div>
+<button id="mais">Carregar mais</button>
+<div id="det"><div id="detBox"></div></div>
+<div id="stats"></div>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<script src="https://cdn.jsdelivr.net/npm/dashjs@4/dist/dash.all.min.js"></script>
+<script>
+let aba='canais', offset=0, q='', hls=null, dash=null;
+const $=id=>document.getElementById(id);
+const grid=$('grid'), det=$('det'), box=$('detBox');
+
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); aba=b.dataset.aba; reset(); listar();
+});
+$('busca').onkeydown=e=>{if(e.key==='Enter'){q=e.target.value.trim();reset();listar();}};
+$('mais').onclick=()=>listar();
+det.onclick=e=>{if(e.target===det)det.style.display='none';};
+function reset(){offset=0;grid.innerHTML='';}
+async function listar(){
+  let url;
+  if(aba==='canais')url=`/api/canais?limit=60&offset=${offset}&q=${encodeURIComponent(q)}`;
+  if(aba==='filmes')url=`/api/filmes?limit=60&offset=${offset}&q=${encodeURIComponent(q)}`;
+  if(aba==='series')url=`/api/series?limit=60&offset=${offset}&q=${encodeURIComponent(q)}`;
+  if(aba==='radios')url=`/api/radios?limit=60&offset=${offset}&q=${encodeURIComponent(q)}`;
+  if(!url)return;
+  const r=await (await fetch(url)).json();
+  if(!r.length){$('mais').style.display=offset?'none':'';if(!offset)grid.innerHTML='<p style="color:#888">Nada encontrado.</p>';return;}
+  offset+=r.length; $('mais').style.display='';
+  for(const it of r){
+    const d=document.createElement('div');
+    d.className='card'+(aba==='radios'?' r':'');
+    const nome=it.nome||it.titulo;
+    const img=it.logo||it.poster||'';
+    const sub=it.categoria||it.ano||(it.generos||'').split(',').slice(0,2).join(' · ')||'';
+    d.innerHTML=`<img loading="lazy" src="${img}" onerror="this.remove()"><div>${nome}${sub?`<br><small>${sub}</small>`:''}</div>`;
+    d.onclick=()=>abrir(nome, it);
+    grid.appendChild(d);
+  }
+}
+async function abrir(nome, it){
+  box.innerHTML='carregando…'; det.style.display='block';
+  if(aba==='canais'){
+    const d=await (await fetch('/api/resolve-canal?nome='+encodeURIComponent(nome))).json();
+    box.innerHTML=`<button onclick="document.getElementById('det').style.display='none'">✕ fechar</button>
+      <h2>${d.canal}</h2><p style="color:#888">${d.categoria||''} · ${d.fontes.length} fonte(s)</p>`+
+      d.fontes.map((f,i)=>`<button class="fonte" data-i="${i}">▶ ${f.fonte_nome||('Fonte '+(i+1))} ${f.qualidade?'· '+f.qualidade:''} <small>(${f.tipo})</small></button>`).join('');
+    box.querySelectorAll('.fonte').forEach(b=>b.onclick=()=>tocar(d.fontes[+b.dataset.i], d.canal));
+  }
+  if(aba==='radios'){ tocar({url:it.url,tipo:'mp4',proxy:null}, nome); det.style.display='none'; }
+  if(aba==='filmes'){
+    const d=await (await fetch('/api/resolve-filme?titulo='+encodeURIComponent(nome))).json();
+    box.innerHTML=`<button onclick="document.getElementById('det').style.display='none'">✕ fechar</button>
+      ${d.poster?`<img src="${d.poster}">`:''}<h2>${d.titulo}</h2>
+      <p style="color:#888">${d.generos||''}</p>
+      <label>Versão: <select id="ver">${d.versoes.map(v=>`<option${v===d.versao_pedida?' selected':''}>${v}</option>`).join('')}</select></label>
+      <div><button class="fonte" id="dl">⬇ Baixar maior qualidade</button></div>
+      <div id="fl"></div>`;
+    box.querySelector('#dl').onclick=()=>window.open('/api/baixar?tipo=filme&titulo='+encodeURIComponent(nome)+'&versao='+box.querySelector('#ver').value);
+    const mostra=v=>{box.querySelector('#fl').innerHTML=(d['fontes_'+v]||d.fontes).map((f,i)=>`<button class="fonte" data-i="${i}">▶ ${f.tipo} — fonte ${i+1}</button>`).join('')||'<p>Sem fonte ativa.</p>';
+      box.querySelectorAll('.fonte').forEach(b=>b.onclick=()=>tocar((d['fontes_'+v]||d.fontes)[+b.dataset.i], d.titulo));};
+    box.querySelector('#ver').onchange=async e=>{
+      const v=e.target.value;
+      if(!d['fontes_'+v]){const r=await (await fetch(`/api/resolve-filme?titulo=${encodeURIComponent(nome)}&versao=${v}`)).json();d['fontes_'+v]=r.fontes;}
+      mostra(v);
+    };
+    mostra(box.querySelector('#ver').value);
+  }
+  if(aba==='series'){
+    const d=await (await fetch('/api/serie?titulo='+encodeURIComponent(nome))).json();
+    box.innerHTML=`<button onclick="document.getElementById('det').style.display='none'">✕ fechar</button>
+      ${d.poster?`<img src="${d.poster}">`:''}<h2>${d.titulo} ${d.ano?`(${d.ano})`:''}</h2>
+      <p style="color:#888">${d.generos||''}</p>
+      <label>Temporada: <select id="tmp">${d.temporadas.map(t=>`<option>${t}</option>`).join('')}</select></label>
+      <label>Versão: <select id="ver">${d.versoes.map(v=>`<option>${v}</option>`).join('')}</select></label>
+      <div id="el"></div>`;
+    const carrega=async()=>{
+      const t=box.querySelector('#tmp').value, v=box.querySelector('#ver').value;
+      const r=await (await fetch(`/api/episodios?titulo=${encodeURIComponent(nome)}&temp=${t}&versao=${v}`)).json();
+      box.querySelector('#el').innerHTML=r.episodios.map(e=>`<div style="display:flex;gap:6px"><button class="fonte" style="flex:1" data-n="${e.numero}">▶ E${e.numero} <small>(${e.fontes.length} fonte(s) · ${e.versoes.join('/')})</small></button><button class="fonte" data-dl="${e.numero}" title="Baixar maior qualidade">⬇</button></div>`).join('');
+      box.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{
+        const ep=r.episodios.find(x=>x.numero==b.dataset.n);
+        tocar(ep.fontes[0], `${nome} S${t}E${b.dataset.n}`);
+      });
+      box.querySelectorAll('[data-dl]').forEach(b=>b.onclick=()=>window.open(`/api/baixar?tipo=serie&titulo=${encodeURIComponent(nome)}&temp=${t}&ep=${b.dataset.dl}&versao=${v}`));
+    };
+    box.querySelector('#tmp').onchange=carrega; box.querySelector('#ver').onchange=carrega;
+    carrega();
+  }
+}
+function tocar(f, rotulo){
+  det.style.display='none';
+  const pv=$('player'), v=$('v'), info=$('info');
+  pv.style.display='block'; info.style.display='block';
+  if(hls){hls.destroy();hls=null;} if(dash){dash.reset();dash=null;}
+  v.pause(); v.removeAttribute('src'); v.load();
+  const src=f.proxy||f.url;
+  info.textContent=`${rotulo} · ${f.tipo} · via ${f.proxy?'proxy':'direta'}`+(f.clearkey?' · ⚠ precisa ClearKey (player demo não abre)':'');
+  if(f.clearkey){return;}
+  const low=src.toLowerCase();
+  if((low.includes('.m3u8')||low.endsWith('.txt'))&&window.Hls&&Hls.isSupported()){
+    hls=new Hls(); hls.loadSource(src); hls.attachMedia(v);
+    hls.on(Hls.Events.ERROR,(_,d)=>{if(d.fatal)info.textContent+=' — ERRO HLS, tente outra fonte';});
+  } else if(low.includes('.mpd')&&window.dashjs){
+    dash=dashjs.MediaPlayer().create(); dash.initialize(v,src,true);
+  } else { v.src=src; }
+  v.play().catch(()=>{});
+  pv.scrollIntoView();
+}
+fetch('/api/stats').then(r=>r.json()).then(s=>{
+  $('stats').textContent=`Banco: ${s.canais} canais · ${s.filmes} filmes · ${s.series} séries · ${s.episodios} episódios · ${s.radios} rádios`;
+});
+listar();
+</script>
+</body>
+</html>
